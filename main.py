@@ -1,55 +1,72 @@
 import discord
 from discord.ext import commands
 import os
-import asyncio
 from flask import Flask
 from threading import Thread
 
+# إعداد سيرفر Flask للبقاء أونلاين
 app = Flask('')
 @app.route('/')
-def home(): return "I am alive!"
+def home(): return "Bot is Online!"
 
 def run():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
 def keep_alive():
     t = Thread(target=run)
+    t.daemon = True
     t.start()
 
+# إعدادات البوت
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-intents.guilds = True
-intents.presences = True # ضروري عشان يشوف حالة الأعضاء
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-OWNER_ID = 517961002214752257 
 
 @bot.event
 async def on_ready():
-    print(f'✅ {bot.user.name} Is Online!')
+    print(f'✅ المنسق الآلي جاهز باسم: {bot.user.name}')
 
-@bot.command()
-async def bc(ctx, *, message):
-    if ctx.author.id != OWNER_ID: return
-    
-    # تصفية الأعضاء الأونلاين فقط (متصل، خامل، عدم الإزعاج)
-    online_members = [m for m in ctx.guild.members if not m.bot and m.status != discord.Status.offline]
-    
-    success = 0
-    await ctx.send(f"🚀 جاري الإرسال السريع لـ {len(online_members)} عضو متصل الآن...")
-    
-    for member in online_members:
-        try:
-            await member.send(f"📢 **رسالة من الإدارة:**\n\n{message}")
-            success += 1
-            await asyncio.sleep(0.1) # الانتظار اللي طلبته
-        except:
-            continue
-            
-    await ctx.send(f"✅ انتهى الإرسال! وصل لـ {success} عضو من المتصلين.")
+@bot.event
+async def on_message(message):
+    # تجاهل رسائل البوتات
+    if message.author.bot:
+        return
 
-keep_alive()
-token = os.environ.get('DISCORD_TOKEN')
-bot.run(token)
+    # التأكد أن الرسالة تحتوي على صورة (Attachment)
+    if message.attachments:
+        for attachment in message.attachments:
+            if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'gif', 'webp']):
+                
+                # إنشاء التنسيق (Embed) مثل صورة 1000028358.jpg
+                embed = discord.Embed(
+                    description=f"**From: {message.author.mention}**",
+                    color=0x2b2d31 # لون رمادي غامق فخم
+                )
+                
+                # وضع افتار العضو كأنه Header
+                embed.set_author(name=message.author.display_name, icon_url=message.author.display_avatar.url)
+                
+                # وضع الصورة اللي أرسلها العضو كـ بنر كبير
+                embed.set_image(url=attachment.url)
+                
+                # وضع افتار العضو مرة ثانية كصورة مصغرة (Thumbnail) على الجنب
+                embed.set_thumbnail(url=message.author.display_avatar.url)
+
+                # حذف الرسالة الأصلية عشان ما يتكرر الشكل
+                try:
+                    await message.delete()
+                except:
+                    pass
+
+                # إرسال التنسيق الجديد مع أزرار (اختياري: تحميل)
+                await message.channel.send(embed=embed)
+                break # ينسق أول صورة فقط لو أرسل مجموعة
+
+    await bot.process_commands(message)
+
+# تشغيل البوت
+if __name__ == "__main__":
+    keep_alive()
+    bot.run(os.environ.get('DISCORD_TOKEN'))
