@@ -6,46 +6,57 @@ from PIL import Image, ImageOps, ImageDraw, ImageFilter
 from flask import Flask
 from threading import Thread
 
-# تشغيل السيرفر للبقاء أونلاين
 app = Flask('')
 @app.route('/')
-def home(): return "Eye Bot is Live!"
+def home(): return "Eye Bot Pro Online!"
 def run(): app.run(host='0.0.0.0', port=10000)
 def keep_alive():
-    Thread(target=run).start()
+    Thread(target=run, daemon=True).start()
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+def add_corners(im, rad):
+    circle = Image.new('L', (rad * 2, rad * 2), 0)
+    draw = ImageDraw.Draw(circle)
+    draw.ellipse((0, 0, rad * 2 - 1, rad * 2 - 1), fill=255)
+    alpha = Image.new('L', im.size, 255)
+    w, h = im.size
+    alpha.paste(circle.crop((0, 0, rad, rad)), (0, 0))
+    alpha.paste(circle.crop((0, rad, rad, rad * 2)), (0, h - rad))
+    alpha.paste(circle.crop((rad, 0, rad * 2, rad)), (w - rad, 0))
+    alpha.paste(circle.crop((rad, rad, rad * 2, rad * 2)), (w - rad, h - rad))
+    im.putalpha(alpha)
+    return im
+
 def create_noir_design(avatar_bytes, banner_bytes):
     avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
     banner = Image.open(io.BytesIO(banner_bytes)).convert("RGBA")
     
+    # خلفية مضببة
     canvas_w, canvas_h = 1000, 600
     background = banner.copy().resize((canvas_w, canvas_h))
     background = background.filter(ImageFilter.GaussianBlur(radius=25)) 
     
+    # البنر - زوايا دائرية وبدون حواف بيضاء
     banner_w, banner_h = 800, 280
     banner_main = ImageOps.fit(banner, (banner_w, banner_h))
-    banner_final = ImageOps.expand(banner_main, border=6, fill='white')
+    banner_final = add_corners(banner_main, 30) # زوايا دائرية فخمة
     
+    # الافتار - دائري صافي بدون حواف بيضاء
     av_size = 280
     avatar = ImageOps.fit(avatar, (av_size, av_size))
     mask = Image.new('L', (av_size, av_size), 0)
     draw = ImageDraw.Draw(mask)
-    draw.ellipse((0, 0, av_size, av_size), fill=255)
+    draw.ellipse((0, 0, av_size - 1, av_size - 1), fill=255)
     
     avatar_round = Image.new('RGBA', (av_size, av_size), (0, 0, 0, 0))
     avatar_round.paste(avatar, (0, 0), mask=mask)
-    
-    avatar_with_border = Image.new('RGBA', (av_size + 20, av_size + 20), (0,0,0,0))
-    draw_border = ImageDraw.Draw(avatar_with_border)
-    draw_border.ellipse((0, 0, av_size + 19, av_size + 19), fill='white')
-    avatar_with_border.paste(avatar_round, (10, 10), avatar_round)
 
+    # الدمج في أماكن نوار بالضبط
     background.paste(banner_final, (150, 80), banner_final)
-    background.paste(avatar_with_border, (100, 230), avatar_with_border)
+    background.paste(avatar_round, (110, 230), avatar_round)
     
     buf = io.BytesIO()
     background.save(buf, format='PNG')
@@ -61,15 +72,15 @@ class DownloadView(View):
     @discord.ui.button(label="Eye افتار", style=discord.ButtonStyle.green, emoji="📥")
     async def download_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            await interaction.user.send(f"تفضل يا وحش، هذي صورك الأصلية:\n**الافتار:** {self.av_url}\n**البنر:** {self.bn_url}")
-            await interaction.response.send_message("أرسلت لك الصور في الخاص!", ephemeral=True)
+            await interaction.user.send(f"صورك الأصلية:\n**الافتار:** {self.av_url}\n**البنر:** {self.bn_url}")
+            await interaction.response.send_message("أرسلتها لك خاص!", ephemeral=True)
         except:
-            await interaction.response.send_message("تأكد إنك فاتح الخاص لاستلام الصور!", ephemeral=True)
+            await interaction.response.send_message("افتح الخاص!", ephemeral=True)
 
 @bot.event
 async def on_message(message):
     if message.author.bot: return
-    if len(message.attachments) >= 2:
+    if len(message.attachments) == 2:
         av_att = message.attachments[0]
         bn_att = message.attachments[1]
         
@@ -78,12 +89,10 @@ async def on_message(message):
         
         final_img = create_noir_design(av_data, bn_data)
         file = discord.File(final_img, filename="eye_design.png")
-        
         view = DownloadView(av_att.url, bn_att.url)
-        # تم إزالة سطر الحذف (message.delete)
+        
         await message.channel.send(content=f"From: {message.author.mention}", file=file, view=view)
 
 if __name__ == "__main__":
     keep_alive()
     bot.run(os.environ.get('DISCORD_TOKEN'))
-
